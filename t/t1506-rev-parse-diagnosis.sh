@@ -8,8 +8,11 @@ exec </dev/null
 
 test_did_you_mean ()
 {
-	printf "fatal: Path '$2$3' $4, but not ${5:-'$3'}.\n" >expected &&
-	printf "Did you mean '$1:$2$3'${2:+ aka '$1:./$3'}?\n" >>expected &&
+	sq="'" &&
+	cat >expected <<-EOF &&
+	fatal: Path '$2$3' $4, but not ${5:-$sq$3$sq}.
+	Did you mean '$1:$2$3'${2:+ aka $sq$1:./$3$sq}?
+	EOF
 	test_cmp expected error
 }
 
@@ -166,6 +169,55 @@ test_expect_success 'relative path when cwd is outside worktree' '
 test_expect_success 'relative path when startup_info is NULL' '
 	test_must_fail test-match-trees HEAD:./file.txt HEAD:./file.txt 2>error &&
 	grep "BUG: startup_info struct is not initialized." error
+'
+
+test_expect_success '<commit>:file correctly diagnosed after a pathname' '
+	test_must_fail git rev-parse file.txt HEAD:file.txt 1>actual 2>error &&
+	test_i18ngrep ! "exists on disk" error &&
+	test_i18ngrep "no such path in the working tree" error &&
+	cat >expect <<-\EOF &&
+	file.txt
+	HEAD:file.txt
+	EOF
+	test_cmp expect actual
+'
+
+test_expect_success 'dotdot is not an empty set' '
+	( H=$(git rev-parse HEAD) && echo $H && echo ^$H ) >expect &&
+
+	git rev-parse HEAD.. >actual &&
+	test_cmp expect actual &&
+
+	git rev-parse ..HEAD >actual &&
+	test_cmp expect actual &&
+
+	echo .. >expect &&
+	git rev-parse .. >actual &&
+	test_cmp expect actual
+'
+
+test_expect_success 'arg before dashdash must be a revision (missing)' '
+	test_must_fail git rev-parse foobar -- 2>stderr &&
+	test_i18ngrep "bad revision" stderr
+'
+
+test_expect_success 'arg before dashdash must be a revision (file)' '
+	>foobar &&
+	test_must_fail git rev-parse foobar -- 2>stderr &&
+	test_i18ngrep "bad revision" stderr
+'
+
+test_expect_success 'arg before dashdash must be a revision (ambiguous)' '
+	>foobar &&
+	git update-ref refs/heads/foobar HEAD &&
+	{
+		# we do not want to use rev-parse here, because
+		# we are testing it
+		cat .git/refs/heads/foobar &&
+		printf "%s\n" --
+	} >expect &&
+	git rev-parse foobar -- >actual &&
+	test_cmp expect actual
 '
 
 test_done
